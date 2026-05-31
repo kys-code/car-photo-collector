@@ -12,6 +12,10 @@ GitHub上のURLメモ:
 
 https://github.com/kys-code/car-photo-collector/blob/main/MOBILE_URL.md
 
+別PC・スマホから開けるURLメモページ:
+
+https://kys-code.github.io/car-photo-collector/links.html
+
 ## 使い方
 
 1. `index.html` をブラウザで開きます。
