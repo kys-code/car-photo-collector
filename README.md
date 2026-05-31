@@ -2,6 +2,16 @@
 
 インストール不要で使える、車種別の写真収集用ローカルアプリです。
 
+## すぐ開くURL
+
+スマホ・PC共通:
+
+https://kys-code.github.io/car-photo-collector/
+
+GitHub上のURLメモ:
+
+https://github.com/kys-code/car-photo-collector/blob/main/MOBILE_URL.md
+
 ## 使い方
 
 1. `index.html` をブラウザで開きます。
