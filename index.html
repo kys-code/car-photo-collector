@@ -149,6 +149,26 @@
 
     .status-line strong { color: var(--ink); }
 
+    .quick-actions {
+      margin: 0 0 12px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .quick-actions button {
+      min-height: 40px;
+      background: #fff;
+      border-color: var(--line);
+    }
+
+    .quick-actions button.saved {
+      background: #fff6df;
+      border-color: #e1ca84;
+      color: #704f00;
+    }
+
     .tabs {
       display: flex;
       gap: 8px;
@@ -362,6 +382,47 @@
       border: 1px solid #efc1b8;
     }
 
+    .favorite-list {
+      display: grid;
+      gap: 8px;
+      max-height: 280px;
+      overflow: auto;
+      padding-right: 4px;
+    }
+
+    .favorite-item {
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      padding: 9px;
+      display: grid;
+      gap: 8px;
+      background: #fff;
+    }
+
+    .favorite-title {
+      font-size: 13px;
+      line-height: 1.45;
+      font-weight: 750;
+      overflow-wrap: anywhere;
+    }
+
+    .favorite-meta {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .favorite-actions {
+      display: grid;
+      grid-template-columns: 1fr 40px;
+      gap: 8px;
+    }
+
+    .favorite-actions button {
+      min-height: 34px;
+      padding: 0 9px;
+      font-size: 13px;
+    }
+
     .export-buttons {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -436,6 +497,9 @@
     </form>
 
     <div class="status-line" id="statusLine">メーカーと車種を選ぶか、車種名を入力して検索してください。</div>
+    <div class="quick-actions">
+      <button id="favoriteButton" type="button">検索車種をお気に入り登録</button>
+    </div>
 
     <div class="tabs" aria-label="表示切り替え">
       <button class="tab-button active" id="allTab" type="button" data-tab="all">すべて</button>
@@ -477,6 +541,12 @@
         </section>
 
         <section class="side-panel">
+          <h2>検索車種のお気に入り <span id="favoriteCount">0</span>件</h2>
+          <div class="favorite-list" id="favoriteList"><p class="note">よく検索する車種を登録すると、ここからすぐ再検索できます。</p></div>
+          <p class="note">写真ではなく、車種名と年式をこのブラウザに保存します。スマホとPCでは別々の保存になります。</p>
+        </section>
+
+        <section class="side-panel">
           <h2>追加検索</h2>
           <div class="link-grid" id="externalLinks"><span class="note">検索後に外部画像検索へのリンクが出ます。</span></div>
         </section>
@@ -491,12 +561,14 @@
 
   <script>
     const PAGE_BATCH_DEFAULT = 24;
+    const FAVORITES_STORAGE_KEY = "carPhotoCollector.favoriteCars.v1";
 
     const state = {
       model: "",
       year: "",
       activeTab: "all",
       selected: new Map(),
+      favorites: loadFavorites(),
       searches: {
         exterior: makeSearchState("外装"),
         interior: makeSearchState("内装")
@@ -533,6 +605,7 @@
       yearSelect: document.getElementById("yearSelect"),
       limitSelect: document.getElementById("limitSelect"),
       searchButton: document.getElementById("searchButton"),
+      favoriteButton: document.getElementById("favoriteButton"),
       statusLine: document.getElementById("statusLine"),
       exteriorSection: document.getElementById("exteriorSection"),
       interiorSection: document.getElementById("interiorSection"),
@@ -544,6 +617,8 @@
       moreInterior: document.getElementById("moreInterior"),
       selectedCount: document.getElementById("selectedCount"),
       selectedList: document.getElementById("selectedList"),
+      favoriteCount: document.getElementById("favoriteCount"),
+      favoriteList: document.getElementById("favoriteList"),
       exportCsv: document.getElementById("exportCsv"),
       exportHtml: document.getElementById("exportHtml"),
       downloadZip: document.getElementById("downloadZip"),
@@ -552,6 +627,8 @@
 
     initializePresets();
     initializeYears();
+    renderFavorites();
+    updateFavoriteButton();
     renderSections();
 
     els.form.addEventListener("submit", async (event) => {
@@ -564,6 +641,9 @@
       applySelectedPreset();
     });
     els.modelSelect.addEventListener("change", applySelectedPreset);
+    els.modelInput.addEventListener("input", updateFavoriteButton);
+    els.yearSelect.addEventListener("change", updateFavoriteButton);
+    els.favoriteButton.addEventListener("click", toggleFavoriteCar);
     document.querySelectorAll("[data-tab]").forEach((button) => button.addEventListener("click", () => setActiveTab(button.dataset.tab)));
     els.moreExterior.addEventListener("click", () => loadMore("exterior"));
     els.moreInterior.addEventListener("click", () => loadMore("interior"));
@@ -573,6 +653,29 @@
 
     function makeSearchState(category) {
       return { category, queries: [], queryIndex: 0, items: [], seen: new Set(), exhausted: true, loading: false };
+    }
+
+    function loadFavorites() {
+      try {
+        const raw = localStorage.getItem(FAVORITES_STORAGE_KEY);
+        if (!raw) return [];
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed)) return [];
+        return parsed
+          .filter((item) => item && typeof item.model === "string")
+          .map((item) => ({
+            model: item.model.trim(),
+            year: String(item.year || ""),
+            savedAt: item.savedAt || new Date().toISOString()
+          }))
+          .filter((item) => item.model);
+      } catch {
+        return [];
+      }
+    }
+
+    function saveFavorites() {
+      localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify(state.favorites));
     }
 
     function initializePresets() {
@@ -598,6 +701,7 @@
 
     function applySelectedPreset() {
       if (els.modelSelect.value) els.modelInput.value = els.modelSelect.value;
+      updateFavoriteButton();
     }
 
     async function runSearch() {
@@ -605,6 +709,7 @@
       if (!model) return;
       state.model = model;
       state.year = els.yearSelect.value;
+      updateFavoriteButton();
       state.selected.clear();
       state.searches.exterior = prepareSearch("exterior", model, state.year);
       state.searches.interior = prepareSearch("interior", model, state.year);
@@ -880,6 +985,99 @@
           renderSelected();
         });
       });
+    }
+
+    function toggleFavoriteCar() {
+      const draft = currentFavoriteDraft();
+      if (!draft) {
+        setStatus(`<span class="warn">お気に入り登録する検索車種を入力してください。</span>`);
+        return;
+      }
+      const key = favoriteKey(draft);
+      const existingIndex = state.favorites.findIndex((item) => favoriteKey(item) === key);
+      if (existingIndex >= 0) {
+        const removed = state.favorites.splice(existingIndex, 1)[0];
+        setStatus(`<strong>${escapeHtml(favoriteLabel(removed))}</strong> を検索車種のお気に入りから解除しました。`);
+      } else {
+        state.favorites.unshift({ ...draft, savedAt: new Date().toISOString() });
+        setStatus(`<strong>${escapeHtml(favoriteLabel(draft))}</strong> を検索車種のお気に入りに登録しました。`);
+      }
+      state.favorites = state.favorites.slice(0, 50);
+      saveFavorites();
+      renderFavorites();
+      updateFavoriteButton();
+    }
+
+    function renderFavorites() {
+      els.favoriteCount.textContent = String(state.favorites.length);
+      if (!state.favorites.length) {
+        els.favoriteList.innerHTML = `<p class="note">よく検索する車種を登録すると、ここからすぐ再検索できます。</p>`;
+        return;
+      }
+      els.favoriteList.innerHTML = state.favorites.map((item) => `
+        <div class="favorite-item">
+          <div>
+            <div class="favorite-title">${escapeHtml(item.model)}</div>
+            <div class="favorite-meta">${escapeHtml(item.year ? `${item.year}年` : "年式指定なし")}</div>
+          </div>
+          <div class="favorite-actions">
+            <button type="button" data-favorite-search="${escapeAttr(favoriteKey(item))}">検索</button>
+            <button class="remove" type="button" data-favorite-remove="${escapeAttr(favoriteKey(item))}" aria-label="お気に入り解除">×</button>
+          </div>
+        </div>
+      `).join("");
+      els.favoriteList.querySelectorAll("[data-favorite-search]").forEach((button) => {
+        button.addEventListener("click", () => searchFavoriteCar(button.dataset.favoriteSearch));
+      });
+      els.favoriteList.querySelectorAll("[data-favorite-remove]").forEach((button) => {
+        button.addEventListener("click", () => removeFavoriteCar(button.dataset.favoriteRemove));
+      });
+    }
+
+    function searchFavoriteCar(key) {
+      const favorite = state.favorites.find((item) => favoriteKey(item) === key);
+      if (!favorite) return;
+      els.modelInput.value = favorite.model;
+      els.yearSelect.value = favorite.year;
+      updateFavoriteButton();
+      runSearch();
+    }
+
+    function removeFavoriteCar(key) {
+      const index = state.favorites.findIndex((item) => favoriteKey(item) === key);
+      if (index < 0) return;
+      const removed = state.favorites.splice(index, 1)[0];
+      saveFavorites();
+      renderFavorites();
+      updateFavoriteButton();
+      setStatus(`<strong>${escapeHtml(favoriteLabel(removed))}</strong> を検索車種のお気に入りから解除しました。`);
+    }
+
+    function updateFavoriteButton() {
+      const draft = currentFavoriteDraft();
+      els.favoriteButton.disabled = !draft;
+      if (!draft) {
+        els.favoriteButton.classList.remove("saved");
+        els.favoriteButton.textContent = "検索車種をお気に入り登録";
+        return;
+      }
+      const saved = state.favorites.some((item) => favoriteKey(item) === favoriteKey(draft));
+      els.favoriteButton.classList.toggle("saved", saved);
+      els.favoriteButton.textContent = saved ? "検索車種を登録済み" : "検索車種をお気に入り登録";
+    }
+
+    function currentFavoriteDraft() {
+      const model = els.modelInput.value.trim();
+      if (!model) return null;
+      return { model, year: els.yearSelect.value };
+    }
+
+    function favoriteKey(item) {
+      return `${item.model.trim().toLowerCase()}::${item.year || ""}`;
+    }
+
+    function favoriteLabel(item) {
+      return item.year ? `${item.model} ${item.year}年` : item.model;
     }
 
     function setActiveTab(tab) {
