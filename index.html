@@ -492,7 +492,7 @@
       <label>車種プリセット<select id="modelSelect"></select></label>
       <label>車種名<input id="modelInput" type="search" placeholder="例: Toyota Land Cruiser 250" autocomplete="off" required></label>
       <label>年式<select id="yearSelect"></select></label>
-      <label>追加枚数<select id="limitSelect"><option value="12">12枚ずつ</option><option value="24" selected>24枚ずつ</option><option value="36">36枚ずつ</option></select></label>
+      <label>追加枚数<select id="limitSelect"><option value="6" selected>6枚ずつ</option><option value="12">12枚ずつ</option><option value="24">24枚ずつ</option></select></label>
       <button class="primary" id="searchButton" type="submit">検索</button>
     </form>
 
@@ -596,6 +596,29 @@
       Tesla: ["Tesla Model S", "Tesla Model 3", "Tesla Model X", "Tesla Model Y", "Tesla Cybertruck", "Tesla Roadster"],
       Hyundai: ["Hyundai Elantra", "Hyundai Sonata", "Hyundai Kona", "Hyundai Tucson", "Hyundai Santa Fe", "Hyundai Ioniq 5", "Hyundai Ioniq 6"],
       Kia: ["Kia Rio", "Kia Forte", "Kia K5", "Kia Sportage", "Kia Sorento", "Kia Telluride", "Kia EV6", "Kia EV9"]
+    };
+
+    const OFFICIAL_SITES = {
+      Toyota: "toyota.com",
+      Lexus: "lexus.com",
+      Nissan: "nissanusa.com",
+      Honda: "automobiles.honda.com",
+      Mazda: "mazdausa.com",
+      Subaru: "subaru.com",
+      Mitsubishi: "mitsubishicars.com",
+      Suzuki: "globalsuzuki.com",
+      Daihatsu: "daihatsu.com",
+      Mercedes: "mercedes-benz.com",
+      BMW: "bmw.com",
+      Audi: "audi.com",
+      Volkswagen: "volkswagen.com",
+      Porsche: "porsche.com",
+      Ford: "ford.com",
+      Chevrolet: "chevrolet.com",
+      Jeep: "jeep.com",
+      Tesla: "tesla.com",
+      Hyundai: "hyundai.com",
+      Kia: "kia.com"
     };
 
     const els = {
@@ -718,10 +741,12 @@
       renderLoading();
       renderExternalLinks(model, state.year);
       setBusy(true);
-      setStatus(`<strong>${escapeHtml(displayName())}</strong> を検索しています。`);
+      const yearNote = state.year ? " 年式が明記された古い写真は除外します。" : "";
+      setStatus(`<strong>${escapeHtml(displayName())}</strong> を検索しています。${yearNote}`);
       try {
         await Promise.all([loadMore("exterior", true), loadMore("interior", true)]);
-        setStatus(`<strong>${escapeHtml(displayName())}</strong> の候補を外装 ${state.searches.exterior.items.length} 枚、内装 ${state.searches.interior.items.length} 枚まで読み込みました。`);
+        const filterNote = state.year ? "年式が明記された不一致写真は除外済みです。" : "";
+        setStatus(`<strong>${escapeHtml(displayName())}</strong> の候補を外装 ${state.searches.exterior.items.length} 枚、内装 ${state.searches.interior.items.length} 枚まで読み込みました。${filterNote}`);
       } catch (error) {
         setStatus(`検索で問題が発生しました: ${escapeHtml(error.message || String(error))}`);
       } finally {
@@ -795,9 +820,16 @@
         normalized.replace(/\bMercedes Benz\b/i, "Mercedes-Benz")
       ]).filter((query) => query && query.length >= 2);
 
-      const exteriorWords = ["car", "automobile", "vehicle", "exterior", "front", "rear", "side", "sedan", "suv", "hatchback", "wagon", "coupe", "convertible", "road", "parked", "autoshow", "motor show", "Tokyo Motor Show", "Geneva Motor Show"];
-      const interiorWords = ["interior", "dashboard", "cabin", "cockpit", "steering wheel", "instrument panel", "seats", "front seats", "rear seats", "center console", "inside", "interieur", "Innenraum", "salon"];
-      return expandQueries(core, kind === "exterior" ? exteriorWords : interiorWords, kind === "exterior");
+      const exteriorWords = ["car", "automobile", "vehicle", "exterior", "front", "rear", "side", "profile", "sedan", "suv", "hatchback", "wagon", "coupe", "convertible", "road", "parked", "press photo", "media", "brochure", "official", "autoshow", "auto show", "motor show", "Tokyo Motor Show", "Geneva Motor Show", "New York Auto Show", "Detroit Auto Show"];
+      const interiorWords = ["interior", "dashboard", "dash", "cabin", "cockpit", "steering wheel", "instrument panel", "instrument cluster", "infotainment", "center console", "console", "front seats", "rear seats", "seats", "cargo area", "trunk", "inside", "press interior", "official interior", "brochure interior", "interieur", "Innenraum", "salon"];
+      const yearFocused = year ? unique([
+        `${normalized} ${year} official`,
+        `${normalized} ${year} press`,
+        `${normalized} ${year} media`,
+        `${normalized} ${year} brochure`,
+        `${normalized} ${year} ${kind === "interior" ? "interior" : "exterior"}`
+      ]) : [];
+      return expandQueries([...yearFocused, ...core], kind === "exterior" ? exteriorWords : interiorWords, kind === "exterior");
     }
 
     function expandQueries(coreQueries, modifiers, directFirst = true) {
@@ -831,6 +863,7 @@
         .filter(Boolean)
         .filter((item) => item.mime === "image/jpeg" || item.mime === "image/png")
         .filter((item) => isRelevantToModel(item))
+        .filter((item) => passesYearFilter(item))
         .filter((item) => matchesSection(item, kind, query))
         .sort((a, b) => scoreImage(b, query, kind) - scoreImage(a, query, kind));
     }
@@ -861,26 +894,43 @@
       const q = query.toLowerCase();
       let score = 0;
       if (kind === "interior" && INTERIOR_RE.test(text)) score += 22;
+      if (kind === "interior" && INTERIOR_RE.test(q)) score += 8;
       if (kind === "exterior" && EXTERIOR_RE.test(text)) score += 14;
       for (const part of modelNeedles()) {
         if (text.includes(part)) score += 5;
       }
       if (state.year && (text.includes(state.year) || q.includes(state.year))) score += 4;
+      if (state.year && !extractYears(text).length) score -= 2;
       if (item.mime === "image/jpeg") score += 2;
       if (Number(item.width) >= 1200) score += 2;
       return score;
     }
 
-    const INTERIOR_RE = /\b(interior|dashboard|dash|cabin|cockpit|steering|seat|seats|console|instrument panel|innenraum|interieur|salon)\b/i;
-    const EXTERIOR_RE = /\b(exterior|front|rear|side|road|parked|autoshow|auto show|motor show|sedan|suv|hatchback|wagon|coupe|convertible)\b/i;
+    const INTERIOR_RE = /\b(interior|dashboard|dash|cabin|cockpit|steering|seat|seats|console|instrument panel|instrument cluster|infotainment|cargo|trunk|inside|innenraum|interieur|salon)\b/i;
+    const EXTERIOR_RE = /\b(exterior|front|rear|side|profile|road|parked|autoshow|auto show|motor show|sedan|suv|hatchback|wagon|coupe|convertible)\b/i;
 
     function matchesSection(item, kind, query) {
       const text = searchableText(item);
       if (kind === "interior") {
-        return INTERIOR_RE.test(text);
+        if (INTERIOR_RE.test(text)) return true;
+        return INTERIOR_RE.test(query) && !EXTERIOR_RE.test(text);
       }
       if (INTERIOR_RE.test(text) && !EXTERIOR_RE.test(text)) return false;
       return true;
+    }
+
+    function passesYearFilter(item) {
+      if (!state.year) return true;
+      const years = extractYears(searchableText(item));
+      if (!years.length) return true;
+      return years.includes(Number(state.year));
+    }
+
+    function extractYears(text) {
+      const currentYear = new Date().getFullYear() + 1;
+      return unique((text.match(/\b(?:19[8-9]\d|20\d{2})\b/g) || [])
+        .map(Number)
+        .filter((year) => year >= 1980 && year <= currentYear));
     }
 
     function isRelevantToModel(item) {
@@ -944,6 +994,7 @@
             <div class="title">${escapeHtml(item.title)}</div>
             <div class="meta">
               <span class="tag">${escapeHtml(item.category)}</span>
+              ${state.year ? `<span class="tag">${escapeHtml(yearStatusLabel(item))}</span>` : ""}
               <span class="tag">${escapeHtml(item.mime.replace("image/", "").toUpperCase())}</span>
               <span class="tag">${escapeHtml(item.license || "License unknown")}</span>
             </div>
@@ -954,6 +1005,13 @@
           </div>
         </article>
       `;
+    }
+
+    function yearStatusLabel(item) {
+      const years = extractYears(searchableText(item));
+      if (!state.year) return "";
+      if (years.includes(Number(state.year))) return `${state.year}年明記`;
+      return "年式未確認";
     }
 
     function toggleSelected(id) {
@@ -1100,13 +1158,27 @@
 
     function renderExternalLinks(model, year) {
       const label = year ? `${model} ${year}` : model;
+      const make = model.split(/\s+/)[0] || "";
+      const officialDomain = OFFICIAL_SITES[make] || "";
       const encoded = encodeURIComponent(label);
       const qExterior = encodeURIComponent(`${label} exterior`);
       const qInterior = encodeURIComponent(`${label} interior dashboard`);
+      const qOfficial = encodeURIComponent(officialDomain ? `site:${officialDomain} ${label}` : `${label} official manufacturer`);
+      const qOfficialInterior = encodeURIComponent(officialDomain ? `site:${officialDomain} ${label} interior` : `${label} official interior`);
+      const qNetCarShow = encodeURIComponent(`site:netcarshow.com ${label}`);
+      const qNetCarShowInterior = encodeURIComponent(`site:netcarshow.com ${label} interior`);
+      const qCaricos = encodeURIComponent(`site:caricos.com ${label}`);
+      const qCaricosInterior = encodeURIComponent(`site:caricos.com ${label} interior`);
       els.externalLinks.innerHTML = `
         <a href="https://commons.wikimedia.org/w/index.php?search=${encoded}&title=Special:MediaSearch&type=image" target="_blank" rel="noreferrer">Wikimedia Commons</a>
         <a href="https://commons.wikimedia.org/w/index.php?search=${qExterior}&title=Special:MediaSearch&type=image" target="_blank" rel="noreferrer">Commons: 外装</a>
         <a href="https://commons.wikimedia.org/w/index.php?search=${qInterior}&title=Special:MediaSearch&type=image" target="_blank" rel="noreferrer">Commons: 内装</a>
+        <a href="https://www.google.com/search?tbm=isch&q=${qOfficial}" target="_blank" rel="noreferrer">公式メーカー画像</a>
+        <a href="https://www.google.com/search?tbm=isch&q=${qOfficialInterior}" target="_blank" rel="noreferrer">公式メーカー画像: 内装</a>
+        <a href="https://www.google.com/search?tbm=isch&q=${qNetCarShow}" target="_blank" rel="noreferrer">NetCarShow</a>
+        <a href="https://www.google.com/search?tbm=isch&q=${qNetCarShowInterior}" target="_blank" rel="noreferrer">NetCarShow: 内装</a>
+        <a href="https://www.google.com/search?tbm=isch&q=${qCaricos}" target="_blank" rel="noreferrer">Caricos</a>
+        <a href="https://www.google.com/search?tbm=isch&q=${qCaricosInterior}" target="_blank" rel="noreferrer">Caricos: 内装</a>
         <a href="https://www.google.com/search?tbm=isch&q=${qExterior}" target="_blank" rel="noreferrer">Google画像検索: 外装</a>
         <a href="https://www.google.com/search?tbm=isch&q=${qInterior}" target="_blank" rel="noreferrer">Google画像検索: 内装</a>
         <a href="https://www.bing.com/images/search?q=${qExterior}" target="_blank" rel="noreferrer">Bing画像検索: 外装</a>
