@@ -942,16 +942,29 @@
         `${normalized} ${year} brochure`,
         `${normalized} ${year} ${kind === "interior" ? "interior" : "exterior"}`
       ]) : [];
-      return expandQueries([...yearFocused, ...core], kind === "exterior" ? exteriorWords : interiorWords, kind === "exterior");
+      const interiorFallback = kind === "interior" ? [
+        `${normalized} interior`,
+        `${normalized} dashboard`,
+        `${normalized} cabin`,
+        `${normalized} cockpit`,
+        `${normalized} seats`,
+        `${normalized} center console`,
+        `${normalized} Innenraum`,
+        `${normalized} interieur`
+      ] : [];
+      return expandQueries([...yearFocused, ...interiorFallback, ...core], kind === "exterior" ? exteriorWords : interiorWords, kind === "exterior");
     }
 
     function expandQueries(coreQueries, modifiers, directFirst = true) {
-      const direct = coreQueries.slice(0, 10);
+      const direct = coreQueries.slice(0, 16);
       const withModifiers = [];
-      for (const base of coreQueries.slice(0, 8)) {
+      for (const base of coreQueries.slice(0, 10)) {
         for (const modifier of modifiers) withModifiers.push(`${base} ${modifier}`);
       }
-      return unique(directFirst ? [...direct, ...withModifiers] : [...withModifiers, ...direct]).slice(0, 120);
+      const mixed = directFirst
+        ? [...direct, ...withModifiers]
+        : [...withModifiers.slice(0, 70), ...direct, ...withModifiers.slice(70)];
+      return unique(mixed).slice(0, 140);
     }
 
     async function commonsQuery(query, limit, kind) {
@@ -1036,7 +1049,7 @@
     function passesYearFilter(item, kind) {
       if (!state.year) return true;
       const years = extractYears(searchableText(item));
-      if (!years.length) return true;
+      if (!years.length) return kind === "interior";
       if (years.includes(Number(state.year))) return true;
       return kind === "interior";
     }
@@ -1098,12 +1111,22 @@
       const count = kind === "exterior" ? els.exteriorCount : els.interiorCount;
       count.textContent = `${search.items.length}枚`;
       if (!search.items.length) {
-        grid.innerHTML = `<div class="empty">候補がまだありません。「もっと見る」または右側の追加検索リンクを試してください。</div>`;
+        grid.innerHTML = `<div class="empty">${emptyMessage(kind)}</div>`;
       } else {
         grid.innerHTML = search.items.map(renderCard).join("");
         grid.querySelectorAll("[data-select]").forEach((button) => button.addEventListener("click", () => toggleSelected(button.dataset.select)));
       }
       updateMoreButtons();
+    }
+
+    function emptyMessage(kind) {
+      if (state.year && kind === "exterior") {
+        return "指定年式が明記された外装候補がまだありません。外部確認リンクの公式メーカー画像、NetCarShow、Caricosも確認してください。";
+      }
+      if (state.year && kind === "interior") {
+        return "内装候補がまだありません。「内装をもっと見る」を押すと、該当年式に加えて参考年式の内装も探します。";
+      }
+      return "候補がまだありません。「もっと見る」または外部確認リンクを試してください。";
     }
 
     function renderCard(item) {
