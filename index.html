@@ -403,7 +403,7 @@
     .favorite-list {
       display: grid;
       gap: 8px;
-      max-height: 280px;
+      max-height: 220px;
       overflow: auto;
       padding-right: 4px;
     }
@@ -439,6 +439,10 @@
       min-height: 34px;
       padding: 0 9px;
       font-size: 13px;
+    }
+
+    .favorite-panel {
+      margin: 0 0 12px;
     }
 
     .export-buttons {
@@ -531,6 +535,12 @@
       <button id="favoriteButton" type="button">検索車種をお気に入り登録</button>
     </div>
 
+    <section class="source-panel favorite-panel">
+      <h2>検索車種のお気に入り <span id="favoriteCount">0</span>件</h2>
+      <div class="favorite-list" id="favoriteList"><p class="note">よく検索する車種を登録すると、ここからすぐ再検索できます。</p></div>
+      <p class="note">写真ではなく、車種名と年式をこのブラウザに保存します。スマホとPCでは別々の保存になります。</p>
+    </section>
+
     <section class="source-panel" aria-labelledby="sourceHeading">
       <h2 id="sourceHeading">外部確認リンク</h2>
       <p class="note">アプリ内の自動候補はWikimedia Commons中心です。公式・NetCarShow・Caricos・画像検索は、ここから別タブで確認できます。</p>
@@ -574,12 +584,6 @@
             <button id="downloadZip" class="wide" type="button">選択画像をZIP保存</button>
           </div>
           <p class="note">ZIP保存は選択したJPEG/PNGを取得して1つのZIPにまとめます。配布・掲載前に各画像のライセンスを確認してください。</p>
-        </section>
-
-        <section class="side-panel">
-          <h2>検索車種のお気に入り <span id="favoriteCount">0</span>件</h2>
-          <div class="favorite-list" id="favoriteList"><p class="note">よく検索する車種を登録すると、ここからすぐ再検索できます。</p></div>
-          <p class="note">写真ではなく、車種名と年式をこのブラウザに保存します。スマホとPCでは別々の保存になります。</p>
         </section>
 
         <section class="side-panel">
