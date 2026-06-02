@@ -49,11 +49,11 @@ https://kys-code.github.io/car-photo-collector/links.html
 
 検索元は Wikimedia Commons です。車種名そのものだけでなく、年式、外装、内装、dashboard、cabin、front、rear、side、motor show など複数の語を組み合わせて検索します。
 
-右側には Google画像検索、Bing画像検索、Wikimedia Commons の追加検索リンクも表示されます。
+検索フォームの下と右側には、Google画像検索、Bing画像検索、Wikimedia Commons の追加検索リンクも表示されます。
 
 年式を指定した場合、画像タイトルや説明文に別の年式が明記されている候補は除外します。年式が明記されていない候補は `年式未確認` として表示します。
 
-外部ソースとして、公式メーカーサイト、NetCarShow、Caricos への画像検索リンクも表示します。これらは規約やCORSの制約があるためアプリ内で自動取得せず、外部確認用リンクとして扱います。
+外部ソースとして、公式メーカーサイト、NetCarShow、Caricos への画像検索リンクも表示します。これらは規約やCORSの制約があるためアプリ内で自動取得せず、検索フォーム直下の `外部確認リンク` から別タブで確認する形にしています。
 
 ## 注意
 

@@ -149,6 +149,24 @@
 
     .status-line strong { color: var(--ink); }
 
+    .source-panel {
+      margin: 0 0 12px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 13px 14px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .source-panel h2 {
+      font-size: 15px;
+    }
+
+    .source-panel .note {
+      margin-top: -2px;
+    }
+
     .quick-actions {
       margin: 0 0 12px;
       display: flex;
@@ -442,13 +460,25 @@
       line-height: 1.65;
     }
 
-    .link-grid { display: grid; gap: 8px; }
+    .link-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+      gap: 8px;
+    }
 
     .link-grid a {
       color: var(--accent-dark);
       font-size: 13px;
       line-height: 1.4;
       overflow-wrap: anywhere;
+      min-height: 38px;
+      display: inline-flex;
+      align-items: center;
+      padding: 8px 10px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: #fff;
+      text-decoration: none;
     }
 
     .warn {
@@ -501,6 +531,12 @@
       <button id="favoriteButton" type="button">検索車種をお気に入り登録</button>
     </div>
 
+    <section class="source-panel" aria-labelledby="sourceHeading">
+      <h2 id="sourceHeading">外部確認リンク</h2>
+      <p class="note">アプリ内の自動候補はWikimedia Commons中心です。公式・NetCarShow・Caricos・画像検索は、ここから別タブで確認できます。</p>
+      <div class="link-grid" data-external-links><span class="note">検索後に外部確認リンクが出ます。</span></div>
+    </section>
+
     <div class="tabs" aria-label="表示切り替え">
       <button class="tab-button active" id="allTab" type="button" data-tab="all">すべて</button>
       <button class="tab-button" id="exteriorTab" type="button" data-tab="exterior">外装</button>
@@ -548,7 +584,7 @@
 
         <section class="side-panel">
           <h2>追加検索</h2>
-          <div class="link-grid" id="externalLinks"><span class="note">検索後に外部画像検索へのリンクが出ます。</span></div>
+          <div class="link-grid" data-external-links><span class="note">検索後に外部確認リンクが出ます。</span></div>
         </section>
 
         <section class="side-panel">
@@ -621,6 +657,17 @@
       Kia: "kia.com"
     };
 
+    const MODEL_ALIASES = {
+      "ジープコンパス": "Jeep Compass",
+      "ジープ コンパス": "Jeep Compass",
+      "jeep コンパス": "Jeep Compass",
+      "人文コンパス": "Jeep Compass",
+      "ブロンコスポーツ": "Ford Bronco Sport",
+      "ブロンコ スポーツ": "Ford Bronco Sport",
+      "フォードブロンコスポーツ": "Ford Bronco Sport",
+      "フォード ブロンコ スポーツ": "Ford Bronco Sport"
+    };
+
     const els = {
       form: document.getElementById("searchForm"),
       makeSelect: document.getElementById("makeSelect"),
@@ -646,7 +693,7 @@
       exportCsv: document.getElementById("exportCsv"),
       exportHtml: document.getElementById("exportHtml"),
       downloadZip: document.getElementById("downloadZip"),
-      externalLinks: document.getElementById("externalLinks")
+      externalLinks: document.querySelectorAll("[data-external-links]")
     };
 
     initializePresets();
@@ -729,8 +776,9 @@
     }
 
     async function runSearch() {
-      const model = els.modelInput.value.trim();
+      const model = normalizeModelInput(els.modelInput.value);
       if (!model) return;
+      if (els.modelInput.value.trim() !== model) els.modelInput.value = model;
       state.model = model;
       state.year = els.yearSelect.value;
       updateFavoriteButton();
@@ -752,6 +800,14 @@
       } finally {
         setBusy(false);
       }
+    }
+
+    function normalizeModelInput(value) {
+      const model = value.replace(/\s+/g, " ").trim();
+      if (!model) return "";
+      const compact = model.toLowerCase().replace(/\s+/g, "");
+      const direct = MODEL_ALIASES[model] || MODEL_ALIASES[compact];
+      return direct || model;
     }
 
     function prepareSearch(kind, model, year) {
@@ -1169,7 +1225,7 @@
       const qNetCarShowInterior = encodeURIComponent(`site:netcarshow.com ${label} interior`);
       const qCaricos = encodeURIComponent(`site:caricos.com ${label}`);
       const qCaricosInterior = encodeURIComponent(`site:caricos.com ${label} interior`);
-      els.externalLinks.innerHTML = `
+      const html = `
         <a href="https://commons.wikimedia.org/w/index.php?search=${encoded}&title=Special:MediaSearch&type=image" target="_blank" rel="noreferrer">Wikimedia Commons</a>
         <a href="https://commons.wikimedia.org/w/index.php?search=${qExterior}&title=Special:MediaSearch&type=image" target="_blank" rel="noreferrer">Commons: 外装</a>
         <a href="https://commons.wikimedia.org/w/index.php?search=${qInterior}&title=Special:MediaSearch&type=image" target="_blank" rel="noreferrer">Commons: 内装</a>
@@ -1184,6 +1240,9 @@
         <a href="https://www.bing.com/images/search?q=${qExterior}" target="_blank" rel="noreferrer">Bing画像検索: 外装</a>
         <a href="https://www.bing.com/images/search?q=${qInterior}" target="_blank" rel="noreferrer">Bing画像検索: 内装</a>
       `;
+      els.externalLinks.forEach((container) => {
+        container.innerHTML = html;
+      });
     }
 
     function exportCsv() {
