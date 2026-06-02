@@ -8,6 +8,10 @@ https://kys-code.github.io/car-photo-collector/
 
 https://kys-code.github.io/car-photo-collector/links.html
 
+URL・ローカル保存場所・パスワード有無のまとめ:
+
+`PROJECT_ACCESS.md`
+
 ## 保存場所
 
 - デスクトップ: `Car Photo Collector.url`
