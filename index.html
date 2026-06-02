@@ -793,11 +793,11 @@
       renderLoading();
       renderExternalLinks(model, state.year);
       setBusy(true);
-      const yearNote = state.year ? " 年式が明記された古い写真は除外します。" : "";
+      const yearNote = state.year ? " 外装は年式不一致を除外し、内装は不足時に別年式参考も表示します。" : "";
       setStatus(`<strong>${escapeHtml(displayName())}</strong> を検索しています。${yearNote}`);
       try {
         await Promise.all([loadMore("exterior", true), loadMore("interior", true)]);
-        const filterNote = state.year ? "年式が明記された不一致写真は除外済みです。" : "";
+        const filterNote = state.year ? "外装は年式不一致を除外済みです。内装は不足時に参考年式をタグ表示します。" : "";
         setStatus(`<strong>${escapeHtml(displayName())}</strong> の候補を外装 ${state.searches.exterior.items.length} 枚、内装 ${state.searches.interior.items.length} 枚まで読み込みました。${filterNote}`);
       } catch (error) {
         setStatus(`検索で問題が発生しました: ${escapeHtml(error.message || String(error))}`);
@@ -923,7 +923,7 @@
         .filter(Boolean)
         .filter((item) => item.mime === "image/jpeg" || item.mime === "image/png")
         .filter((item) => isRelevantToModel(item))
-        .filter((item) => passesYearFilter(item))
+        .filter((item) => passesYearFilter(item, kind))
         .filter((item) => matchesSection(item, kind, query))
         .sort((a, b) => scoreImage(b, query, kind) - scoreImage(a, query, kind));
     }
@@ -961,6 +961,7 @@
       }
       if (state.year && (text.includes(state.year) || q.includes(state.year))) score += 4;
       if (state.year && !extractYears(text).length) score -= 2;
+      if (state.year && isDifferentYearReference(item)) score -= kind === "interior" ? 8 : 20;
       if (item.mime === "image/jpeg") score += 2;
       if (Number(item.width) >= 1200) score += 2;
       return score;
@@ -979,11 +980,18 @@
       return true;
     }
 
-    function passesYearFilter(item) {
+    function passesYearFilter(item, kind) {
       if (!state.year) return true;
       const years = extractYears(searchableText(item));
       if (!years.length) return true;
-      return years.includes(Number(state.year));
+      if (years.includes(Number(state.year))) return true;
+      return kind === "interior";
+    }
+
+    function isDifferentYearReference(item) {
+      if (!state.year) return false;
+      const years = extractYears(searchableText(item));
+      return years.length > 0 && !years.includes(Number(state.year));
     }
 
     function extractYears(text) {
@@ -1071,6 +1079,7 @@
       const years = extractYears(searchableText(item));
       if (!state.year) return "";
       if (years.includes(Number(state.year))) return `${state.year}年明記`;
+      if (years.length) return `参考: ${years.join("/")}年`;
       return "年式未確認";
     }
 
