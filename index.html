@@ -441,6 +441,19 @@
       font-size: 13px;
     }
 
+    .favorite-tools {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .favorite-tools button {
+      min-height: 36px;
+      font-size: 13px;
+      background: #fff;
+      border: 1px solid var(--line);
+    }
+
     .favorite-panel {
       margin: 0 0 12px;
     }
@@ -538,7 +551,12 @@
     <section class="source-panel favorite-panel">
       <h2>検索車種のお気に入り <span id="favoriteCount">0</span>件</h2>
       <div class="favorite-list" id="favoriteList"><p class="note">よく検索する車種を登録すると、ここからすぐ再検索できます。</p></div>
-      <p class="note">写真ではなく、車種名と年式をこのブラウザに保存します。スマホとPCでは別々の保存になります。</p>
+      <div class="favorite-tools">
+        <button id="exportFavorites" type="button">お気に入り保存</button>
+        <button id="importFavorites" type="button">お気に入り復元</button>
+      </div>
+      <input id="favoritesFile" type="file" accept="application/json,.json" hidden>
+      <p class="note">写真ではなく、車種名と年式をこのブラウザに保存します。サイト更新後も残るよう二重保存します。別端末へ移す場合は保存/復元を使ってください。</p>
     </section>
 
     <section class="source-panel" aria-labelledby="sourceHeading">
@@ -601,7 +619,9 @@
 
   <script>
     const PAGE_BATCH_DEFAULT = 24;
-    const FAVORITES_STORAGE_KEY = "carPhotoCollector.favoriteCars.v1";
+    const FAVORITES_STORAGE_KEY = "carPhotoCollector.favoriteCars";
+    const FAVORITES_BACKUP_KEY = "carPhotoCollector.favoriteCars.backup";
+    const LEGACY_FAVORITES_STORAGE_KEYS = ["carPhotoCollector.favoriteCars.v1"];
 
     const state = {
       model: "",
@@ -694,6 +714,9 @@
       selectedList: document.getElementById("selectedList"),
       favoriteCount: document.getElementById("favoriteCount"),
       favoriteList: document.getElementById("favoriteList"),
+      exportFavorites: document.getElementById("exportFavorites"),
+      importFavorites: document.getElementById("importFavorites"),
+      favoritesFile: document.getElementById("favoritesFile"),
       exportCsv: document.getElementById("exportCsv"),
       exportHtml: document.getElementById("exportHtml"),
       downloadZip: document.getElementById("downloadZip"),
@@ -722,6 +745,9 @@
     document.querySelectorAll("[data-tab]").forEach((button) => button.addEventListener("click", () => setActiveTab(button.dataset.tab)));
     els.moreExterior.addEventListener("click", () => loadMore("exterior"));
     els.moreInterior.addEventListener("click", () => loadMore("interior"));
+    els.exportFavorites.addEventListener("click", exportFavorites);
+    els.importFavorites.addEventListener("click", () => els.favoritesFile.click());
+    els.favoritesFile.addEventListener("change", importFavorites);
     els.exportCsv.addEventListener("click", exportCsv);
     els.exportHtml.addEventListener("click", exportHtml);
     els.downloadZip.addEventListener("click", downloadSelectedZip);
@@ -731,26 +757,53 @@
     }
 
     function loadFavorites() {
+      const candidates = [FAVORITES_STORAGE_KEY, FAVORITES_BACKUP_KEY, ...LEGACY_FAVORITES_STORAGE_KEYS];
+      for (const key of candidates) {
+        const favorites = readFavoritesFromStorage(key);
+        if (favorites.length) {
+          writeFavoritesToStorage(favorites);
+          return favorites;
+        }
+      }
+      return [];
+    }
+
+    function saveFavorites() {
+      writeFavoritesToStorage(state.favorites);
+    }
+
+    function readFavoritesFromStorage(key) {
       try {
-        const raw = localStorage.getItem(FAVORITES_STORAGE_KEY);
-        if (!raw) return [];
-        const parsed = JSON.parse(raw);
-        if (!Array.isArray(parsed)) return [];
-        return parsed
-          .filter((item) => item && typeof item.model === "string")
-          .map((item) => ({
-            model: item.model.trim(),
-            year: String(item.year || ""),
-            savedAt: item.savedAt || new Date().toISOString()
-          }))
-          .filter((item) => item.model);
+        return normalizeFavorites(JSON.parse(localStorage.getItem(key) || "[]"));
       } catch {
         return [];
       }
     }
 
-    function saveFavorites() {
-      localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify(state.favorites));
+    function writeFavoritesToStorage(favorites) {
+      const normalized = normalizeFavorites(favorites);
+      const payload = JSON.stringify(normalized);
+      localStorage.setItem(FAVORITES_STORAGE_KEY, payload);
+      localStorage.setItem(FAVORITES_BACKUP_KEY, payload);
+      for (const key of LEGACY_FAVORITES_STORAGE_KEYS) {
+        localStorage.setItem(key, payload);
+      }
+    }
+
+    function normalizeFavorites(values) {
+      if (!Array.isArray(values)) return [];
+      const byKey = new Map();
+      for (const item of values) {
+        if (!item || typeof item.model !== "string") continue;
+        const favorite = {
+          model: item.model.trim(),
+          year: String(item.year || ""),
+          savedAt: item.savedAt || new Date().toISOString()
+        };
+        if (!favorite.model) continue;
+        byKey.set(favoriteKey(favorite), favorite);
+      }
+      return [...byKey.values()].slice(0, 50);
     }
 
     function initializePresets() {
@@ -1162,6 +1215,39 @@
       });
     }
 
+    function exportFavorites() {
+      const payload = JSON.stringify({
+        app: "Car Photo Collector",
+        type: "favoriteCars",
+        exportedAt: new Date().toISOString(),
+        favorites: normalizeFavorites(state.favorites)
+      }, null, 2);
+      downloadText(payload, "car-photo-collector-favorites.json", "application/json;charset=utf-8", false);
+      setStatus(`お気に入り ${state.favorites.length} 件を保存しました。`);
+    }
+
+    async function importFavorites(event) {
+      const file = event.target.files?.[0];
+      event.target.value = "";
+      if (!file) return;
+      try {
+        const text = await file.text();
+        const parsed = JSON.parse(text);
+        const imported = normalizeFavorites(Array.isArray(parsed) ? parsed : parsed.favorites);
+        if (!imported.length) {
+          setStatus(`<span class="warn">復元できるお気に入りが見つかりませんでした。</span>`);
+          return;
+        }
+        state.favorites = normalizeFavorites([...imported, ...state.favorites]);
+        saveFavorites();
+        renderFavorites();
+        updateFavoriteButton();
+        setStatus(`お気に入り ${imported.length} 件を復元しました。`);
+      } catch (error) {
+        setStatus(`<span class="warn">お気に入りの復元に失敗しました: ${escapeHtml(error.message || String(error))}</span>`);
+      }
+    }
+
     function searchFavoriteCar(key) {
       const favorite = state.favorites.find((item) => favoriteKey(item) === key);
       if (!favorite) return;
@@ -1397,9 +1483,9 @@
       return state.year ? `${state.model} ${state.year}` : state.model;
     }
 
-    function downloadText(text, filename, type) {
+    function downloadText(text, filename, type, announce = true) {
       downloadBlob(new Blob([text], { type }), filename);
-      setStatus(`${escapeHtml(filename)} を保存しました。`);
+      if (announce) setStatus(`${escapeHtml(filename)} を保存しました。`);
     }
 
     function downloadBlob(blob, filename) {
