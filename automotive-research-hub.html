@@ -953,6 +953,7 @@
     document.getElementById("importButton").addEventListener("click", () => document.getElementById("importFile").click());
     document.getElementById("importFile").addEventListener("change", importJson);
     document.getElementById("resetButton").addEventListener("click", resetToSample);
+    document.addEventListener("click", handleTemplateClick);
 
     renderHints();
     render();
@@ -1233,14 +1234,74 @@
 
     function renderHints() {
       const hints = [
-        ["法規", "更新日、適用時期、対象カテゴリ、証跡要求を必ず残す"],
-        ["競合", "自社に効く差分だけを書く。数値は出典付きで管理する"],
-        ["特許", "権利者、請求項、回避設計、量産可能性に分ける"],
-        ["判断", "採用理由だけでなく棄却理由と未確認事項を残す"]
+        ["法規", "更新日、適用時期、対象カテゴリ、証跡要求を必ず残す", "regulation"],
+        ["競合", "自社に効く差分だけを書く。数値は出典付きで管理する", "benchmark"],
+        ["特許", "権利者、請求項、回避設計、量産可能性に分ける", "patent"],
+        ["技術記事", "量産影響、前提条件、未確認事項を切り分ける", "article"]
       ];
-      document.getElementById("hintCards").innerHTML = hints.map(([title, text]) => `
-        <div class="card"><h3>${title}</h3><p class="note">${text}</p></div>
+      document.getElementById("hintCards").innerHTML = hints.map(([title, text, template]) => `
+        <div class="card">
+          <h3>${title}</h3>
+          <p class="note">${text}</p>
+          <div class="mini-actions">
+            <button class="ghost" type="button" data-template="${template}">型を入れる</button>
+          </div>
+        </div>
       `).join("");
+    }
+
+    function handleTemplateClick(event) {
+      const button = event.target.closest("[data-template]");
+      if (!button) return;
+      const templates = {
+        regulation: {
+          title: "法規更新の影響確認",
+          type: "法規制",
+          area: "法規/認証",
+          impact: "5",
+          confidence: "5",
+          summary: "更新内容、適用時期、対象車両カテゴリ、必要な証跡、設計変更への影響を確認する。",
+          action: "該当システム、対応期限、認証資料への反映要否を確認"
+        },
+        benchmark: {
+          title: "競合車ベンチマーク差分",
+          type: "競合車",
+          area: "EV/バッテリー",
+          impact: "4",
+          confidence: "4",
+          summary: "競合の採用技術、性能差、コスト影響、ユーザー体験への影響を自社仕様と比較する。",
+          action: "比較表へ反映し、設計目標との差分を確認"
+        },
+        patent: {
+          title: "特許動向と回避設計メモ",
+          type: "特許",
+          area: "SDV/ソフトウェア",
+          impact: "3",
+          confidence: "3",
+          summary: "権利者、請求項の要点、技術課題、回避設計の余地、量産適用可能性を整理する。",
+          action: "関連特許を追加確認し、知財部門へ相談要否を判断"
+        },
+        article: {
+          title: "技術記事の開発影響メモ",
+          type: "技術記事",
+          area: "熱マネジメント",
+          impact: "3",
+          confidence: "3",
+          summary: "技術の前提条件、性能メリット、制約、量産性、未確認事項を分けて整理する。",
+          action: "一次情報または実測データで裏取り"
+        }
+      };
+      const template = templates[button.dataset.template];
+      if (!template) return;
+      setValue("titleInput", template.title);
+      setSelect("typeInput", template.type);
+      setSelect("areaInput", template.area);
+      setSelect("impactInput", template.impact);
+      setSelect("confidenceInput", template.confidence);
+      setValue("summaryInput", template.summary);
+      setValue("actionInput", template.action);
+      document.getElementById("formStatus").textContent = "調査テンプレートを入力しました。タイトル、URL、期限を実データに合わせて調整してください。";
+      showView("capture");
     }
 
     function collectFindings() {
