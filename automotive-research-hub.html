@@ -128,7 +128,7 @@
       top: 0;
       z-index: 10;
       display: grid;
-      grid-template-columns: repeat(5, minmax(0, 1fr));
+      grid-template-columns: repeat(6, minmax(0, 1fr));
       gap: 6px;
       padding: 8px 0 10px;
       background: linear-gradient(var(--bg) 78%, rgba(244, 246, 248, 0));
@@ -470,11 +470,21 @@
       counter-reset: finding;
     }
 
+    .quality-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }
+
     .finding {
       border: 1px solid var(--line);
       border-radius: var(--radius);
       background: #ffffff;
       padding: 12px;
+    }
+
+    .finding h3 {
+      margin-bottom: 6px;
     }
 
     .finding::before {
@@ -497,7 +507,7 @@
       border-top: 1px solid var(--line);
       padding: 9px 14px;
       display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-columns: repeat(4, minmax(0, 1fr));
       gap: 8px;
       box-shadow: 0 -8px 22px rgba(22, 34, 47, .08);
     }
@@ -520,7 +530,7 @@
     @media (max-width: 620px) {
       header { padding: 17px 14px 15px; }
       main { width: calc(100% - 20px); margin-top: 12px; }
-      .tabs { grid-template-columns: repeat(5, max-content); overflow-x: auto; padding-bottom: 8px; }
+      .tabs { grid-template-columns: repeat(6, max-content); overflow-x: auto; padding-bottom: 8px; }
       .tab { min-width: 78px; }
       .panel { padding: 12px; }
       .form-grid, .filterbar, .metric-grid { grid-template-columns: 1fr; }
@@ -528,7 +538,8 @@
       .score { width: 42px; height: 42px; }
       .bar-row { grid-template-columns: 92px minmax(0, 1fr) 30px; }
       .footer-actions { grid-template-columns: 1fr; }
-      body { padding-bottom: 172px; }
+      .quality-grid { grid-template-columns: 1fr; }
+      body { padding-bottom: 220px; }
     }
   </style>
 </head>
@@ -550,6 +561,7 @@
       <button class="tab" data-view="library">情報庫</button>
       <button class="tab" data-view="benchmark">比較</button>
       <button class="tab" data-view="decision">判断</button>
+      <button class="tab" data-view="review">レビュー</button>
     </nav>
 
     <section class="view active" id="dashboard">
@@ -575,6 +587,14 @@
           </div>
           <div class="bars" id="areaBars"></div>
         </aside>
+      </div>
+
+      <div class="panel">
+        <div class="section-title">
+          <h2>品質レビュー</h2>
+          <button class="ghost" data-jump="review">課題を見る</button>
+        </div>
+        <div class="quality-grid" id="qualitySummary"></div>
       </div>
     </section>
 
@@ -796,10 +816,21 @@
         <div class="timeline" id="decisionTimeline"></div>
       </div>
     </section>
+
+    <section class="view" id="review">
+      <div class="panel">
+        <div class="section-title">
+          <h2>自動レビュー課題</h2>
+          <span class="note">登録情報、比較表、判断ログの不足を検出</span>
+        </div>
+        <div class="review-list" id="reviewFindings"></div>
+      </div>
+    </section>
   </main>
 
   <div class="footer-actions">
     <button class="ghost" id="exportAllButton">全データ保存</button>
+    <button class="ghost" id="exportMarkdownButton">レポート保存</button>
     <button class="ghost" id="importButton">JSON読込</button>
     <button class="danger" id="resetButton">サンプルに戻す</button>
     <input id="importFile" type="file" accept="application/json" hidden>
@@ -916,6 +947,7 @@
     document.getElementById("typeFilter").addEventListener("change", render);
     document.getElementById("sortInput").addEventListener("change", render);
     document.getElementById("exportAllButton").addEventListener("click", () => downloadJson("automotive-research-hub-all.json", state));
+    document.getElementById("exportMarkdownButton").addEventListener("click", exportMarkdownReport);
     document.getElementById("exportJsonButton").addEventListener("click", () => downloadJson("automotive-research-decisions.json", state.decisions));
     document.getElementById("exportBenchCsvButton").addEventListener("click", exportBenchmarkCsv);
     document.getElementById("importButton").addEventListener("click", () => document.getElementById("importFile").click());
@@ -1045,18 +1077,19 @@
       renderBenchmark();
       renderSourcePicker();
       renderDecisions();
+      renderReview();
     }
 
     function renderMetrics() {
       const high = state.resources.filter((item) => priority(item) >= 75).length;
       const dueSoon = state.resources.filter((item) => daysUntil(item.due) <= 14).length;
-      const primary = state.resources.filter((item) => item.confidence >= 5).length;
+      const reviewCount = collectFindings().filter((finding) => finding.level !== "ok").length;
       const decisions = state.decisions.length;
       document.getElementById("metrics").innerHTML = [
         metric("登録情報", state.resources.length, "出典付きメモ"),
         metric("高優先", high, "先に見るべき項目"),
         metric("14日内期限", dueSoon, "対応期限あり"),
-        metric("判断ログ", decisions, "根拠付き決定")
+        metric("要レビュー", reviewCount, `判断ログ ${decisions}件`)
       ].join("");
     }
 
@@ -1146,10 +1179,33 @@
       bindDeleteButtons();
     }
 
+    function renderReview() {
+      const findings = collectFindings();
+      const blockers = findings.filter((finding) => finding.level === "high").length;
+      const warnings = findings.filter((finding) => finding.level === "mid").length;
+      const ok = findings.filter((finding) => finding.level === "ok").length;
+      document.getElementById("qualitySummary").innerHTML = [
+        qualityMetric("重大", blockers, "出典、判断根拠、期限切れ"),
+        qualityMetric("確認", warnings, "次アクション、要約、信頼度"),
+        qualityMetric("良好", ok, "運用上の強み")
+      ].join("");
+      document.getElementById("reviewFindings").innerHTML = findings.length ? findings.map((finding) => `
+        <article class="finding">
+          <h3>${escapeHtml(finding.title)}</h3>
+          <p class="summary">${escapeHtml(finding.detail)}</p>
+          <div class="meta">
+            <span class="tag ${finding.level === "high" ? "high" : finding.level === "mid" ? "mid" : "low"}">${escapeHtml(finding.label)}</span>
+            ${finding.target ? `<span class="tag blue">${escapeHtml(finding.target)}</span>` : ""}
+          </div>
+        </article>
+      `).join("") : empty("レビュー課題はありません。");
+    }
+
     function resourceCard(item) {
       const score = priority(item);
       const scoreClass = score >= 75 ? "high" : score >= 50 ? "mid" : "low";
       const due = item.due ? `${item.due} (${daysUntil(item.due)}日)` : "期限なし";
+      const badges = qualityBadges(item).map((badge) => `<span class="tag ${badge.level}">${escapeHtml(badge.text)}</span>`).join("");
       return `
         <article class="card">
           <div class="card-head">
@@ -1159,6 +1215,7 @@
                 <span class="tag">${escapeHtml(item.type)}</span>
                 <span class="tag blue">${escapeHtml(item.area)}</span>
                 <span class="tag ${scoreClass}">期限 ${escapeHtml(due)}</span>
+                ${badges}
               </div>
             </div>
             <div class="score" aria-label="優先度">${score}</div>
@@ -1184,6 +1241,112 @@
       document.getElementById("hintCards").innerHTML = hints.map(([title, text]) => `
         <div class="card"><h3>${title}</h3><p class="note">${text}</p></div>
       `).join("");
+    }
+
+    function collectFindings() {
+      const findings = [];
+      state.resources.forEach((item) => {
+        if (!item.url) {
+          findings.push({
+            level: "high",
+            label: "重大",
+            target: item.title,
+            title: "出典または保存場所が未登録",
+            detail: "後から根拠を確認できないため、URL、PDF名、会議名のいずれかを追加してください。"
+          });
+        }
+        if (daysUntil(item.due) < 0) {
+          findings.push({
+            level: "high",
+            label: "重大",
+            target: item.title,
+            title: "対応期限を過ぎています",
+            detail: "期限を更新するか、判断ログへ完了または保留の理由を残してください。"
+          });
+        }
+        if (!item.action) {
+          findings.push({
+            level: "mid",
+            label: "確認",
+            target: item.title,
+            title: "次アクションが空です",
+            detail: "調査継続、設計確認、比較表反映など、次に動く内容を1行で追加してください。"
+          });
+        }
+        if ((item.summary || "").length < 42) {
+          findings.push({
+            level: "mid",
+            label: "確認",
+            target: item.title,
+            title: "要約が短すぎます",
+            detail: "開発判断に効く性能、コスト、法規、リスク、未確認事項のどれかを追記してください。"
+          });
+        }
+        if (Number(item.confidence || 0) <= 2) {
+          findings.push({
+            level: "mid",
+            label: "確認",
+            target: item.title,
+            title: "信頼度が低い情報です",
+            detail: "一次情報、公式資料、規格本文、実測メモのいずれかで裏取りしてください。"
+          });
+        }
+      });
+      state.decisions.forEach((decision) => {
+        if (!decision.evidenceIds || decision.evidenceIds.length === 0) {
+          findings.push({
+            level: "high",
+            label: "重大",
+            target: decision.title,
+            title: "判断ログに根拠情報がありません",
+            detail: "判断の説明責任が弱くなるため、情報庫から最低1件の根拠を紐づけてください。"
+          });
+        }
+        if (!decision.openIssue) {
+          findings.push({
+            level: "mid",
+            label: "確認",
+            target: decision.title,
+            title: "未確認事項が空です",
+            detail: "棄却理由や残リスクがない場合も、「残リスクなし」と明記すると後から読みやすくなります。"
+          });
+        }
+      });
+      state.benchmarks.forEach((item) => {
+        if (!item.evidence) {
+          findings.push({
+            level: "mid",
+            label: "確認",
+            target: item.vehicle,
+            title: "比較表の根拠が空です",
+            detail: "競合比較は数値や観察条件がずれやすいため、出典URLまたは確認メモを追加してください。"
+          });
+        }
+      });
+      if (state.resources.length >= 3 && findings.length === 0) {
+        findings.push({
+          level: "ok",
+          label: "良好",
+          target: "",
+          title: "基本品質は満たしています",
+          detail: "出典、次アクション、判断根拠が揃っています。次は領域別に比較表へ展開してください。"
+        });
+      }
+      return findings.sort((a, b) => severityScore(b.level) - severityScore(a.level));
+    }
+
+    function qualityBadges(item) {
+      const badges = [];
+      if (!item.url) badges.push({ level: "high", text: "出典なし" });
+      if (daysUntil(item.due) < 0) badges.push({ level: "high", text: "期限超過" });
+      if (!item.action) badges.push({ level: "mid", text: "次アクションなし" });
+      if ((item.summary || "").length < 42) badges.push({ level: "mid", text: "要約短い" });
+      if (Number(item.confidence || 0) <= 2) badges.push({ level: "mid", text: "低信頼" });
+      return badges.slice(0, 3);
+    }
+
+    function severityScore(level) {
+      return level === "high" ? 3 : level === "mid" ? 2 : 1;
     }
 
     function bindDeleteButtons() {
@@ -1253,6 +1416,16 @@
       return `<div class="metric"><span>${label}</span><strong>${valueText}</strong><span>${caption}</span></div>`;
     }
 
+    function qualityMetric(label, valueText, caption) {
+      return `
+        <div class="metric">
+          <span>${escapeHtml(label)}</span>
+          <strong>${valueText}</strong>
+          <span>${escapeHtml(caption)}</span>
+        </div>
+      `;
+    }
+
     function empty(text) {
       return `<div class="empty">${escapeHtml(text)}</div>`;
     }
@@ -1270,6 +1443,57 @@
       const rows = [["対象", "年式", "領域", "評価", "確認ポイント", "根拠"]];
       state.benchmarks.forEach((item) => rows.push([item.vehicle, item.modelYear, item.area, item.rating, item.point, item.evidence]));
       downloadText("automotive-benchmark.csv", rows.map((row) => row.map(csvCell).join(",")).join("\n"), "text/csv");
+    }
+
+    function exportMarkdownReport() {
+      const findings = collectFindings();
+      const resources = [...state.resources].sort((a, b) => priority(b) - priority(a));
+      const lines = [
+        "# Automotive Research Hub Report",
+        "",
+        `作成日: ${todayText}`,
+        "",
+        "## サマリー",
+        "",
+        `- 登録情報: ${state.resources.length}件`,
+        `- 比較項目: ${state.benchmarks.length}件`,
+        `- 判断ログ: ${state.decisions.length}件`,
+        `- レビュー課題: ${findings.filter((finding) => finding.level !== "ok").length}件`,
+        "",
+        "## 優先確認情報",
+        ""
+      ];
+      resources.slice(0, 8).forEach((item) => {
+        lines.push(`### ${item.title}`);
+        lines.push("");
+        lines.push(`- 領域: ${item.area}`);
+        lines.push(`- 種類: ${item.type}`);
+        lines.push(`- 優先度: ${priority(item)}`);
+        lines.push(`- 期限: ${item.due || "なし"}`);
+        lines.push(`- 根拠: ${item.url || "未登録"}`);
+        lines.push(`- 要約: ${item.summary}`);
+        if (item.action) lines.push(`- 次アクション: ${item.action}`);
+        lines.push("");
+      });
+      lines.push("## レビュー課題", "");
+      findings.forEach((finding) => {
+        lines.push(`- [${finding.label}] ${finding.title}${finding.target ? `: ${finding.target}` : ""}`);
+        lines.push(`  ${finding.detail}`);
+      });
+      lines.push("", "## 判断ログ", "");
+      state.decisions.forEach((decision) => {
+        const evidenceTitles = (decision.evidenceIds || [])
+          .map((id) => state.resources.find((resource) => resource.id === id)?.title)
+          .filter(Boolean)
+          .join(", ");
+        lines.push(`### ${decision.title}`);
+        lines.push("");
+        lines.push(`- 理由: ${decision.reason}`);
+        lines.push(`- 未確認事項: ${decision.openIssue || "未記入"}`);
+        lines.push(`- 根拠: ${evidenceTitles || "未紐づけ"}`);
+        lines.push("");
+      });
+      downloadText("automotive-research-report.md", lines.join("\n"), "text/markdown");
     }
 
     function importJson(event) {
