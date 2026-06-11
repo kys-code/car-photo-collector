@@ -498,6 +498,12 @@
       text-decoration: none;
     }
 
+    .link-grid a.source-primary {
+      border-color: #86a6c5;
+      background: #f4f8fb;
+      font-weight: 750;
+    }
+
     .warn {
       color: #8a5700;
       background: #fff7e8;
@@ -679,6 +685,15 @@
       Tesla: "tesla.com",
       Hyundai: "hyundai.com",
       Kia: "kia.com"
+    };
+
+    const OFFICIAL_EXTRA_SITES = {
+      Jeep: ["jeep.co.uk", "jeep.es", "media.stellantis.com"],
+      Ford: ["media.ford.com"],
+      Chevrolet: ["media.chevrolet.com"],
+      Chrysler: ["media.stellantisnorthamerica.com"],
+      Dodge: ["media.stellantisnorthamerica.com"],
+      Ram: ["media.stellantisnorthamerica.com"]
     };
 
     const MODEL_ALIASES = {
@@ -875,7 +890,9 @@
         items: [],
         seen: new Set(),
         exhausted: false,
-        loading: false
+        loading: false,
+        failures: 0,
+        lastError: ""
       };
     }
 
@@ -893,7 +910,14 @@
         while (added < target && search.queryIndex < search.queries.length) {
           const query = search.queries[search.queryIndex];
           search.queryIndex += 1;
-          const items = await commonsQuery(query, 50, kind);
+          let items = [];
+          try {
+            items = await commonsQuery(query, 50, kind);
+          } catch (error) {
+            search.failures += 1;
+            search.lastError = error.message || String(error);
+            continue;
+          }
           for (const item of items) {
             if (search.seen.has(item.id)) continue;
             search.seen.add(item.id);
@@ -906,7 +930,8 @@
         renderSections();
         if (!quiet) {
           const suffix = search.exhausted ? "検索候補を最後まで確認しました。" : "さらに見る場合はもう一度ボタンを押してください。";
-          setStatus(`${search.category}を ${added} 枚追加しました。${suffix}`);
+          const failureNote = search.failures ? ` 一部のCommons検索は取得失敗しましたが、残りの候補を続けています。` : "";
+          setStatus(`${search.category}を ${added} 枚追加しました。${suffix}${failureNote}`);
         }
       } finally {
         search.loading = false;
@@ -952,7 +977,7 @@
         `${normalized} Innenraum`,
         `${normalized} interieur`
       ] : [];
-      return expandQueries([...yearFocused, ...interiorFallback, ...core], kind === "exterior" ? exteriorWords : interiorWords, kind === "exterior");
+      return expandQueries([...yearFocused, ...interiorFallback, ...core], kind === "exterior" ? exteriorWords : interiorWords);
     }
 
     function expandQueries(coreQueries, modifiers, directFirst = true) {
@@ -961,9 +986,7 @@
       for (const base of coreQueries.slice(0, 10)) {
         for (const modifier of modifiers) withModifiers.push(`${base} ${modifier}`);
       }
-      const mixed = directFirst
-        ? [...direct, ...withModifiers]
-        : [...withModifiers.slice(0, 70), ...direct, ...withModifiers.slice(70)];
+      const mixed = directFirst ? [...direct, ...withModifiers] : [...withModifiers, ...direct];
       return unique(mixed).slice(0, 140);
     }
 
@@ -1348,17 +1371,26 @@
     function renderExternalLinks(model, year) {
       const label = year ? `${model} ${year}` : model;
       const make = model.split(/\s+/)[0] || "";
-      const officialDomain = OFFICIAL_SITES[make] || "";
+      const officialDomains = unique([OFFICIAL_SITES[make], ...(OFFICIAL_EXTRA_SITES[make] || [])].filter(Boolean));
       const encoded = encodeURIComponent(label);
       const qExterior = encodeURIComponent(`${label} exterior`);
       const qInterior = encodeURIComponent(`${label} interior dashboard`);
-      const qOfficial = encodeURIComponent(officialDomain ? `site:${officialDomain} ${label}` : `${label} official manufacturer`);
-      const qOfficialInterior = encodeURIComponent(officialDomain ? `site:${officialDomain} ${label} interior` : `${label} official interior`);
+      const officialPrefix = officialDomains.length ? `(${officialDomains.map((domain) => `site:${domain}`).join(" OR ")})` : "";
+      const qOfficial = encodeURIComponent(officialPrefix ? `${officialPrefix} ${label}` : `${label} official manufacturer`);
+      const qOfficialInterior = encodeURIComponent(officialPrefix ? `${officialPrefix} ${label} interior` : `${label} official interior`);
+      const qOfficialMedia = encodeURIComponent(`${label} official media photos`);
       const qNetCarShow = encodeURIComponent(`site:netcarshow.com ${label}`);
       const qNetCarShowInterior = encodeURIComponent(`site:netcarshow.com ${label} interior`);
       const qCaricos = encodeURIComponent(`site:caricos.com ${label}`);
       const qCaricosInterior = encodeURIComponent(`site:caricos.com ${label} interior`);
+      const qEdmunds = encodeURIComponent(`site:edmunds.com ${label} pictures`);
+      const qEdmundsInterior = encodeURIComponent(`site:edmunds.com ${label} interior pictures`);
+      const direct = [
+        netCarShowDirectLink(model, year),
+        officialMediaLink(model, year)
+      ].filter(Boolean).map((link) => `<a class="source-primary" href="${escapeAttr(link.url)}" target="_blank" rel="noreferrer">${escapeHtml(link.label)}</a>`).join("");
       const html = `
+        ${direct}
         <a href="https://commons.wikimedia.org/w/index.php?search=${encoded}&title=Special:MediaSearch&type=image" target="_blank" rel="noreferrer">Wikimedia Commons</a>
         <a href="https://commons.wikimedia.org/w/index.php?search=${qExterior}&title=Special:MediaSearch&type=image" target="_blank" rel="noreferrer">Commons: 外装</a>
         <a href="https://commons.wikimedia.org/w/index.php?search=${qInterior}&title=Special:MediaSearch&type=image" target="_blank" rel="noreferrer">Commons: 内装</a>
@@ -1368,6 +1400,9 @@
         <a href="https://www.google.com/search?tbm=isch&q=${qNetCarShowInterior}" target="_blank" rel="noreferrer">NetCarShow: 内装</a>
         <a href="https://www.google.com/search?tbm=isch&q=${qCaricos}" target="_blank" rel="noreferrer">Caricos</a>
         <a href="https://www.google.com/search?tbm=isch&q=${qCaricosInterior}" target="_blank" rel="noreferrer">Caricos: 内装</a>
+        <a href="https://www.google.com/search?tbm=isch&q=${qEdmunds}" target="_blank" rel="noreferrer">Edmunds画像検索</a>
+        <a href="https://www.google.com/search?tbm=isch&q=${qEdmundsInterior}" target="_blank" rel="noreferrer">Edmunds: 内装</a>
+        <a href="https://www.google.com/search?tbm=isch&q=${qOfficialMedia}" target="_blank" rel="noreferrer">公式メディア画像検索</a>
         <a href="https://www.google.com/search?tbm=isch&q=${qExterior}" target="_blank" rel="noreferrer">Google画像検索: 外装</a>
         <a href="https://www.google.com/search?tbm=isch&q=${qInterior}" target="_blank" rel="noreferrer">Google画像検索: 内装</a>
         <a href="https://www.bing.com/images/search?q=${qExterior}" target="_blank" rel="noreferrer">Bing画像検索: 外装</a>
@@ -1376,6 +1411,37 @@
       els.externalLinks.forEach((container) => {
         container.innerHTML = html;
       });
+    }
+
+    function netCarShowDirectLink(model, year) {
+      if (!year) return null;
+      const slug = sourceSlugs(model);
+      if (!slug.make || !slug.modelUnderscore) return null;
+      return {
+        label: `直接: NetCarShow ${year}`,
+        url: `https://www.netcarshow.com/${slug.make}/${year}-${slug.modelUnderscore}/`
+      };
+    }
+
+    function officialMediaLink(model, year) {
+      const make = model.split(/\s+/)[0] || "";
+      if (make !== "Jeep") return null;
+      const label = encodeURIComponent(`${model} ${year || ""}`.trim());
+      return {
+        label: "直接: Stellantis公式メディア検索",
+        url: `https://www.google.com/search?q=site%3Amedia.stellantis.com+${label}+images`
+      };
+    }
+
+    function sourceSlugs(model) {
+      const parts = model.toLowerCase().replace(/[^a-z0-9\s-]/g, " ").split(/\s+/).filter(Boolean);
+      const make = parts.shift() || "";
+      const modelOnly = parts.join(" ");
+      return {
+        make: make.replace(/-+/g, "-"),
+        modelHyphen: modelOnly.replace(/\s+/g, "-"),
+        modelUnderscore: modelOnly.replace(/\s+/g, "_")
+      };
     }
 
     function exportCsv() {
